@@ -1,0 +1,20 @@
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment & secrets
+.env
+*.pem
+
+# IDE
+.cursor/
+.vscode/
+
+# Results (contient IPs)
+results/*.json
+

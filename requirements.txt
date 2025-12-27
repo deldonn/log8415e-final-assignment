@@ -1,0 +1,18 @@
+# AWS SDK
+boto3>=1.34.0
+botocore>=1.34.0
+# Config
+PyYAML>=6.0.1
+python-dotenv>=1.0.0
+# CLI
+click>=8.1.7
+# SSH 
+paramiko>=3.4.0
+# Web framework for Proxy/Gatekeeper
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+# HTTP clients
+requests>=2.31.0
+httpx>=0.26.0
+# MySQL connector for Proxy
+pymysql>=1.1.0

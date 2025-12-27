@@ -1,0 +1,78 @@
+# =============================================================================
+# LOG8415E Final Assignment - Configuration
+# =============================================================================
+
+aws:
+  region: us-east-1
+  # Key pair sera créé automatiquement par le script
+  key_pair_name: log8415e-keypair
+
+# -----------------------------------------------------------------------------
+# Instances EC2
+# -----------------------------------------------------------------------------
+instances:
+  db:
+    count: 3
+    type: t3.micro
+    # Ubuntu 22.04 LTS - us-east-1 (sera résolu dynamiquement)
+    ami_name_pattern: "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
+    ami_owner: "099720109477"  # Canonical
+    roles:
+      - manager   # Index 0: MySQL master
+      - worker1   # Index 1: MySQL replica
+      - worker2   # Index 2: MySQL replica
+
+  proxy:
+    count: 1
+    type: t3.small
+    # Même AMI Ubuntu
+
+  gatekeeper:
+    count: 1
+    type: t3.small
+    # Même AMI Ubuntu
+
+# -----------------------------------------------------------------------------
+# Tags pour identifier les ressources du projet
+# -----------------------------------------------------------------------------
+tags:
+  project: log8415e-final
+  environment: dev
+
+# -----------------------------------------------------------------------------
+# MySQL Configuration
+# -----------------------------------------------------------------------------
+mysql:
+  root_password: "Root123"
+  app_user: appuser
+  app_password: "AppUser123"
+  replication_user: repl_user
+  replication_password: "Replication123"
+  database: sakila
+
+# -----------------------------------------------------------------------------
+# Proxy Configuration
+# -----------------------------------------------------------------------------
+proxy:
+  port: 8000
+  strategies:
+    - direct_hit
+    - random
+    - customized
+
+# -----------------------------------------------------------------------------
+# Gatekeeper Configuration
+# -----------------------------------------------------------------------------
+gatekeeper:
+  port: 8080
+  api_key: "log8415e-secret-key-2024"
+
+# -----------------------------------------------------------------------------
+# Benchmark Configuration
+# -----------------------------------------------------------------------------
+benchmark:
+  num_writes: 1000
+  num_reads: 1000
+  results_dir: results/
+
+
