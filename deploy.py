@@ -1,414 +1,379 @@
 #!/usr/bin/env python3
 """
-=============================================================================
-LOG8415E Final Assignment - Full Automation Script
-=============================================================================
+Deployment Script - LOG8415E Final Assignment
 
-This script automates the complete deployment of the cloud architecture:
-- Phase 1: DB Cluster (3x t3.micro with MySQL + Sakila)
-- Phase 2: Proxy (t3.small) + Gatekeeper (t3.small) + Replication
-- Phase 3: Benchmarks (1000 reads + 1000 writes per strategy)
+Orchestrates the full deployment of the MySQL cluster with Gatekeeper pattern.
 
 Usage:
-    python deploy.py                 # Full deployment
-    python deploy.py --phase 1       # Only Phase 1
-    python deploy.py --destroy       # Cleanup all resources
-    python deploy.py --status        # Show current status
+    python deploy.py demo      # Full deployment
+    python deploy.py destroy   # Cleanup all resources
+    python deploy.py status    # Show current status
+    python deploy.py benchmark # Run benchmarks only
 """
 import sys
 import time
-import argparse
 import json
 from datetime import datetime
 from pathlib import Path
 
 
+# =============================================================================
+# Utility Functions
+# =============================================================================
+
 def print_banner(text: str, char: str = "="):
-    """Print a banner with the given text."""
-    width = 70
-    print()
-    print(char * width)
-    print(f" {text}")
-    print(char * width)
-    print()
+    """Print a formatted banner for section headers."""
+    print(f"\n{char * 70}\n {text}\n{char * 70}\n")
 
 
 def print_step(step: int, total: int, description: str):
-    """Print a step indicator."""
-    print(f"\n[Step {step}/{total}] {description}")
-    print("-" * 50)
-
-
-def check_aws_credentials() -> bool:
-    """Verify AWS credentials are configured."""
-    print("Checking AWS credentials...")
-    try:
-        import boto3
-        sts = boto3.client('sts')
-        identity = sts.get_caller_identity()
-        print(f"  ✓ AWS Account: {identity['Account']}")
-        print(f"  ✓ User ARN: {identity['Arn']}")
-        return True
-    except Exception as e:
-        print(f"  ✗ AWS credentials not configured: {e}")
-        print("\n  Run 'aws configure' to set up your credentials.")
-        return False
-
-
-def check_default_vpc() -> bool:
-    """Verify default VPC exists."""
-    print("Checking default VPC...")
-    try:
-        import boto3
-        ec2 = boto3.client('ec2')
-        response = ec2.describe_vpcs(
-            Filters=[{"Name": "is-default", "Values": ["true"]}]
-        )
-        if response["Vpcs"]:
-            vpc_id = response["Vpcs"][0]["VpcId"]
-            print(f"  ✓ Default VPC: {vpc_id}")
-            return True
-        else:
-            print("  ✗ No default VPC found")
-            print("\n  Run 'aws ec2 create-default-vpc' to create one.")
-            return False
-    except Exception as e:
-        print(f"  ✗ Error checking VPC: {e}")
-        return False
+    """Print a step indicator with progress (e.g., [Step 1/3])."""
+    print(f"\n[Step {step}/{total}] {description}\n" + "-" * 50)
 
 
 def preflight_checks() -> bool:
-    """Run all preflight checks."""
+    """
+    Verify AWS credentials and default VPC exist before deployment.
+    Returns True if all checks pass, False otherwise.
+    """
     print_banner("PREFLIGHT CHECKS")
     
-    checks = [
-        ("AWS Credentials", check_aws_credentials),
-        ("Default VPC", check_default_vpc),
-    ]
+    import boto3
     
-    all_passed = True
-    for name, check_func in checks:
-        if not check_func():
-            all_passed = False
+    print("Checking AWS credentials...")
+    try:
+        sts = boto3.client('sts')
+        identity = sts.get_caller_identity()
+        print(f"  ✓ AWS Account: {identity['Account']}")
+    except Exception as e:
+        print(f"  ✗ AWS credentials not configured: {e}")
+        return False
     
-    if all_passed:
-        print("\n✓ All preflight checks passed!")
-    else:
-        print("\n✗ Some checks failed. Please fix the issues above.")
+    print("Checking default VPC...")
+    try:
+        ec2 = boto3.client('ec2')
+        response = ec2.describe_vpcs(Filters=[{"Name": "is-default", "Values": ["true"]}])
+        if response["Vpcs"]:
+            print(f"  ✓ Default VPC: {response['Vpcs'][0]['VpcId']}")
+        else:
+            print("  ✗ No default VPC found")
+            return False
+    except Exception as e:
+        print(f"  ✗ Error: {e}")
+        return False
     
-    return all_passed
+    print("\n✓ All preflight checks passed!")
+    return True
 
 
 # =============================================================================
-# PHASE 1: Database Cluster
+# Phase 1: Database Cluster
 # =============================================================================
 
 def deploy_phase1() -> dict:
     """
-    Deploy Phase 1: Database Cluster
-    - Create 3x t3.micro EC2 instances
-    - Install MySQL 8 on each
-    - Import Sakila database
-    - Run sysbench benchmarks
+    Deploy 3 MySQL nodes (manager + 2 workers) on t3.micro instances.
+    Installs MySQL, imports Sakila database, and runs sysbench benchmark.
     """
-    print_banner("PHASE 1: DATABASE CLUSTER", "=")
+    print_banner("PHASE 1: DATABASE CLUSTER")
     
     from infrastructure.db_nodes import create_db_nodes, get_db_nodes_status, print_db_status
     from infrastructure.setup_db import setup_all_db_nodes
     
-    results = {
-        "phase": 1,
-        "status": "pending",
-        "instances": [],
-        "setup_results": [],
-        "start_time": datetime.now().isoformat(),
-    }
+    results = {"phase": 1, "status": "pending"}
     
     try:
-        # Step 1: Create EC2 instances
-        print_step(1, 3, "Creating EC2 instances (3x t3.micro)")
-        instances = create_db_nodes()
-        results["instances"] = instances
+        print_step(1, 3, "Creating 3x t3.micro EC2 instances")
+        create_db_nodes()
         print_db_status()
         
-        # Step 2: Wait for instances to be ready
-        print_step(2, 3, "Waiting for instances to initialize")
-        print("  Waiting 90 seconds for cloud-init...")
-        for i in range(9):
-            time.sleep(10)
-            print(f"  ... {(i+1)*10} seconds")
+        print_step(2, 3, "Waiting for instances (4 min)")
+        for i in range(8):
+            time.sleep(30)
+            print(f"  ... {(i+1)*30}s")
         
-        # Refresh instance info
-        instances = get_db_nodes_status()
-        running = [i for i in instances if i["state"] == "running"]
-        print(f"\n  ✓ {len(running)}/3 instances running")
-        
-        # Step 3: Setup MySQL + Sakila + Sysbench
         print_step(3, 3, "Setting up MySQL + Sakila + Sysbench")
+        running = [i for i in get_db_nodes_status() if i["state"] == "running"]
         setup_results = setup_all_db_nodes(running)
-        results["setup_results"] = setup_results
         
-        # Check results
-        success_count = sum(1 for r in setup_results if r.get("success"))
-        
-        if success_count == 3:
-            results["status"] = "success"
-            print("\n✓ Phase 1 completed successfully!")
-        else:
-            results["status"] = "partial"
-            print(f"\n⚠ Phase 1 partially completed ({success_count}/3 nodes)")
-        
-        results["end_time"] = datetime.now().isoformat()
+        success = sum(1 for r in setup_results if r.get("success"))
+        results["status"] = "success" if success == 3 else "partial"
+        print(f"\n✓ Phase 1: {success}/3 nodes ready")
         
     except Exception as e:
         results["status"] = "failed"
-        results["error"] = str(e)
         print(f"\n✗ Phase 1 failed: {e}")
-        import traceback
-        traceback.print_exc()
+        import traceback; traceback.print_exc()
     
     return results
 
 
 # =============================================================================
-# PHASE 2: Proxy + Gatekeeper + Replication
+# Phase 2: Proxy + Gatekeeper + Replication
 # =============================================================================
 
 def deploy_phase2() -> dict:
     """
-    Deploy Phase 2: Proxy, Gatekeeper, and Replication
-    - Configure MySQL replication (Manager -> Workers)
-    - Deploy Proxy (t3.small)
-    - Deploy Gatekeeper (t3.small)
-    - Configure security groups
+    Configure MySQL replication and deploy Proxy/Gatekeeper on t3.small instances.
+    Sets up strict security group rules for the Gatekeeper pattern.
     """
-    print_banner("PHASE 2: PROXY + GATEKEEPER + REPLICATION", "=")
+    print_banner("PHASE 2: PROXY + GATEKEEPER + REPLICATION")
     
-    results = {
-        "phase": 2,
-        "status": "pending",
-        "start_time": datetime.now().isoformat(),
-    }
+    from infrastructure.db_nodes import get_db_nodes_status
+    from infrastructure.cluster_nodes import create_phase2_instances
+    from infrastructure.security_groups import update_existing_sgs_strict_rules
+    from infrastructure.replication import setup_replication
+    from infrastructure.setup_proxy_gatekeeper import setup_proxy_and_gatekeeper
+    from infrastructure.config import get_config
     
-    # TODO: Implement Phase 2
-    print("  [TODO] Phase 2 will be implemented next:")
-    print("    - MySQL replication (Manager -> Workers)")
-    print("    - Proxy instance (t3.small)")
-    print("    - Gatekeeper instance (t3.small)")
-    print("    - Security groups (strict access)")
-    print("    - Proxy strategies (direct_hit, random, customized)")
+    results = {"phase": 2, "status": "pending"}
     
-    results["status"] = "not_implemented"
-    results["end_time"] = datetime.now().isoformat()
+    try:
+        print_step(1, 5, "Getting DB nodes")
+        db_nodes = [n for n in get_db_nodes_status() if n.get("state") == "running"]
+        if not db_nodes:
+            raise RuntimeError("No DB nodes. Run Phase 1 first.")
+        print(f"  Found {len(db_nodes)} running DB nodes")
+        
+        print_step(2, 5, "Configuring MySQL replication")
+        setup_replication(db_nodes)
+        
+        print_step(3, 5, "Updating security groups")
+        update_existing_sgs_strict_rules()
+        
+        print_step(4, 5, "Creating Proxy + Gatekeeper instances")
+        instances = create_phase2_instances()
+        
+        print("  Waiting 180s for instances...")
+        for i in range(6):
+            time.sleep(30)
+            print(f"  ... {(i+1)*30}s")
+        
+        print_step(5, 5, "Deploying applications")
+        setup_results = setup_proxy_and_gatekeeper(
+            instances.get("proxy"), 
+            instances.get("gatekeeper"), 
+            db_nodes
+        )
+        
+        proxy_ok = setup_results.get("proxy", {}).get("success", False)
+        gk_ok = setup_results.get("gatekeeper", {}).get("success", False)
+        
+        if proxy_ok and gk_ok:
+            results["status"] = "success"
+            gk = instances.get("gatekeeper", {})
+            config = get_config()
+            print(f"\n✓ Phase 2 completed!")
+            print(f"  Gatekeeper: http://{gk.get('public_ip')}:{config['gatekeeper']['port']}")
+        else:
+            results["status"] = "partial"
+            print(f"\n⚠ Phase 2 partial: Proxy={'✓' if proxy_ok else '✗'} GK={'✓' if gk_ok else '✗'}")
+        
+    except Exception as e:
+        results["status"] = "failed"
+        print(f"\n✗ Phase 2 failed: {e}")
+        import traceback; traceback.print_exc()
     
     return results
 
 
 # =============================================================================
-# PHASE 3: Benchmarks
+# Phase 3: Benchmarks
 # =============================================================================
 
-def run_phase3_benchmarks() -> dict:
+def deploy_phase3() -> dict:
     """
-    Run Phase 3: Benchmarks
-    - 1000 writes + 1000 reads per strategy
-    - Strategies: direct_hit, random, customized
-    - Save results to results/ directory
+    Run benchmarks testing all 3 routing strategies (direct_hit, random, customized).
+    Executes 1000 writes + 1000 reads per strategy and saves results to JSON.
     """
-    print_banner("PHASE 3: BENCHMARKS", "=")
+    print_banner("PHASE 3: BENCHMARKS")
     
-    results = {
-        "phase": 3,
-        "status": "pending",
-        "strategies": {},
-        "start_time": datetime.now().isoformat(),
-    }
+    from infrastructure.cluster_nodes import get_proxy_gatekeeper_status
+    from infrastructure.config import get_config
+    from benchmark import run_all_benchmarks
     
-    # TODO: Implement Phase 3
-    print("  [TODO] Phase 3 will be implemented after Phase 2:")
-    print("    - Benchmark: direct_hit strategy")
-    print("    - Benchmark: random strategy")
-    print("    - Benchmark: customized (ping-based) strategy")
-    print("    - 1000 writes + 1000 reads per strategy")
-    print("    - Results saved to results/")
+    results = {"phase": 3, "status": "pending"}
     
-    results["status"] = "not_implemented"
-    results["end_time"] = datetime.now().isoformat()
+    try:
+        config = get_config()
+        gk = get_proxy_gatekeeper_status().get("gatekeeper", {})
+        
+        if gk.get("state") != "running" or not gk.get("public_ip"):
+            raise RuntimeError("Gatekeeper not running. Deploy Phase 2 first.")
+        
+        gatekeeper_url = f"http://{gk['public_ip']}:{config['gatekeeper']['port']}"
+        print(f"  Gatekeeper: {gatekeeper_url}")
+        print(f"  Strategies: direct_hit, random, customized")
+        print(f"  Queries: {config['benchmark']['num_writes']} writes + {config['benchmark']['num_reads']} reads each")
+        
+        run_all_benchmarks(
+            gatekeeper_url=gatekeeper_url,
+            api_key=config["gatekeeper"]["api_key"],
+            num_writes=config['benchmark']['num_writes'],
+            num_reads=config['benchmark']['num_reads'],
+            output_dir=config['benchmark']['results_dir']
+        )
+        
+        results["status"] = "success"
+        print("\n✓ Phase 3 completed!")
+        
+    except Exception as e:
+        results["status"] = "failed"
+        print(f"\n✗ Phase 3 failed: {e}")
+        import traceback; traceback.print_exc()
     
     return results
 
 
 # =============================================================================
-# DESTROY ALL RESOURCES
+# CLI Commands
 # =============================================================================
 
-def destroy_all() -> bool:
-    """Destroy all project resources."""
+def cmd_demo():
+    """
+    Execute full deployment: Phase 1 (DB) + Phase 2 (Proxy/GK) + Phase 3 (Benchmarks).
+    Automatically destroys all resources after benchmarks complete.
+    """
+    print_banner("LOG8415E - FULL DEPLOYMENT", "#")
+    print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("\nDeploying: 3x t3.micro (DB) + 1x t3.small (Proxy) + 1x t3.small (Gatekeeper)")
+    
+    if not preflight_checks():
+        return
+    
+    results = {}
+    
+    results["phase1"] = deploy_phase1()
+    if results["phase1"]["status"] == "failed":
+        print("\n✗ Stopping - Phase 1 failed")
+        return
+    
+    results["phase2"] = deploy_phase2()
+    results["phase3"] = deploy_phase3()
+    
+    # Save results before cleanup
+    results_path = Path("results") / f"deployment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    results_path.parent.mkdir(exist_ok=True)
+    with open(results_path, "w") as f:
+        json.dump(results, f, indent=2, default=str)
+    
+    print_banner("DEPLOYMENT SUMMARY")
+    print(f"Phase 1 (DB Cluster):  {results['phase1']['status']}")
+    print(f"Phase 2 (Proxy/GK):    {results['phase2']['status']}")
+    print(f"Phase 3 (Benchmarks):  {results['phase3']['status']}")
+    print(f"\nResults saved: {results_path}")
+    
+    # Auto-cleanup after benchmarks
+    print("\n[AUTO] Cleaning up resources...")
+    cmd_destroy()
+
+
+def cmd_destroy():
+    """
+    Terminate all EC2 instances, delete security groups, and remove key pair.
+    Waits 15s before deleting security groups to allow instance termination.
+    """
     print_banner("DESTROYING ALL RESOURCES", "!")
     
     from infrastructure.db_nodes import destroy_db_nodes
+    from infrastructure.cluster_nodes import destroy_proxy_gatekeeper
     from infrastructure.security_groups import delete_security_groups
     from infrastructure.keypair import delete_key_pair
     
     try:
-        # Step 1: Terminate instances
         print_step(1, 3, "Terminating EC2 instances")
         destroy_db_nodes()
-        # TODO: Destroy Proxy and Gatekeeper
+        destroy_proxy_gatekeeper()
         
-        # Step 2: Wait and delete security groups
-        print_step(2, 3, "Deleting security groups")
-        print("  Waiting 10 seconds for instances to release SGs...")
-        time.sleep(10)
+        print_step(2, 3, "Deleting security groups (waiting 15s)")
+        time.sleep(15)
         delete_security_groups()
         
-        # Step 3: Delete key pair
         print_step(3, 3, "Deleting key pair")
         delete_key_pair()
         
         print("\n✓ All resources destroyed!")
-        return True
         
     except Exception as e:
-        print(f"\n✗ Destruction failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+        print(f"\n✗ Error: {e}")
+        import traceback; traceback.print_exc()
 
 
-# =============================================================================
-# STATUS
-# =============================================================================
-
-def show_status():
-    """Show current status of all resources."""
+def cmd_status():
+    """
+    Display current infrastructure status: DB nodes, Proxy, Gatekeeper.
+    Shows connection info and sample curl command if Gatekeeper is running.
+    """
     print_banner("CURRENT STATUS")
     
-    from infrastructure.db_nodes import get_db_nodes_status, print_db_status
+    from infrastructure.db_nodes import print_db_status
+    from infrastructure.cluster_nodes import print_phase2_status, get_proxy_gatekeeper_status
+    from infrastructure.config import get_config
     
-    # DB Nodes
     print_db_status()
+    print_phase2_status()
     
-    # TODO: Show Proxy and Gatekeeper status
-    print("\n[Phase 2 resources: Not yet deployed]")
+    config = get_config()
+    gk = get_proxy_gatekeeper_status().get("gatekeeper", {})
+    
+    if gk.get("state") == "running" and gk.get("public_ip"):
+        port = config["gatekeeper"]["port"]
+        api_key = config["gatekeeper"]["api_key"]
+        print(f"\n{'=' * 70}")
+        print("QUICK ACCESS")
+        print(f"{'=' * 70}")
+        print(f"\n  Gatekeeper: http://{gk['public_ip']}:{port}")
+        print(f"  API Key: {api_key}")
+        print(f"\n  Test: curl -X POST http://{gk['public_ip']}:{port}/query \\")
+        print(f'         -H "X-API-Key: {api_key}" -H "Content-Type: application/json" \\')
+        print(f'         -d \'{{"query": "SELECT COUNT(*) FROM sakila.actor"}}\'\n')
+
+
+def cmd_benchmark():
+    """Run Phase 3 benchmarks only (requires deployed infrastructure)."""
+    deploy_phase3()
+
+
+def cmd_help():
+    """Display usage information and available commands."""
+    print(__doc__)
+    print("Commands:")
+    print("  demo      Full deployment (Phase 1 + 2 + 3)")
+    print("  destroy   Destroy all AWS resources")
+    print("  status    Show current infrastructure status")
+    print("  benchmark Run benchmarks (requires Phase 2)\n")
 
 
 # =============================================================================
-# MAIN ENTRY POINT
+# Main Entry Point
 # =============================================================================
-
-def full_deploy():
-    """Run full deployment (all phases)."""
-    print_banner("LOG8415E - FULL DEPLOYMENT", "#")
-    print(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    # Preflight checks
-    if not preflight_checks():
-        print("\n✗ Preflight checks failed. Aborting.")
-        return False
-    
-    # Confirm
-    print("\nThis will deploy:")
-    print("  - 3x t3.micro (DB nodes)")
-    print("  - 1x t3.small (Proxy)")
-    print("  - 1x t3.small (Gatekeeper)")
-    print("\nEstimated time: 15-20 minutes")
-    print("Estimated cost: ~$0.05/hour while running")
-    
-    response = input("\nProceed? [y/N]: ").strip().lower()
-    if response != 'y':
-        print("Aborted.")
-        return False
-    
-    all_results = {}
-    
-    # Phase 1
-    all_results["phase1"] = deploy_phase1()
-    if all_results["phase1"]["status"] == "failed":
-        print("\n✗ Phase 1 failed. Stopping deployment.")
-        return False
-    
-    # Phase 2
-    all_results["phase2"] = deploy_phase2()
-    
-    # Phase 3 (benchmarks)
-    all_results["phase3"] = run_phase3_benchmarks()
-    
-    # Save results
-    results_path = Path("results") / f"deployment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    results_path.parent.mkdir(exist_ok=True)
-    with open(results_path, "w") as f:
-        json.dump(all_results, f, indent=2, default=str)
-    print(f"\n✓ Results saved to: {results_path}")
-    
-    # Summary
-    print_banner("DEPLOYMENT SUMMARY")
-    print(f"Phase 1 (DB Cluster):  {all_results['phase1']['status']}")
-    print(f"Phase 2 (Proxy/GK):    {all_results['phase2']['status']}")
-    print(f"Phase 3 (Benchmarks):  {all_results['phase3']['status']}")
-    
-    return True
-
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="LOG8415E Final Assignment - Deployment Automation"
-    )
-    parser.add_argument(
-        "--phase", 
-        type=int, 
-        choices=[1, 2, 3],
-        help="Deploy only a specific phase"
-    )
-    parser.add_argument(
-        "--destroy", 
-        action="store_true",
-        help="Destroy all resources"
-    )
-    parser.add_argument(
-        "--status", 
-        action="store_true",
-        help="Show current status"
-    )
-    parser.add_argument(
-        "--no-confirm",
-        action="store_true",
-        help="Skip confirmation prompts"
-    )
+    """Parse CLI arguments and execute the corresponding command."""
+    sys.path.insert(0, str(Path(__file__).parent))
     
-    args = parser.parse_args()
+    if len(sys.argv) < 2:
+        cmd_help()
+        return
     
-    # Add project root to path
-    project_root = Path(__file__).parent
-    sys.path.insert(0, str(project_root))
+    command = sys.argv[1].lower()
     
-    if args.destroy:
-        if not args.no_confirm:
-            response = input("Are you sure you want to destroy all resources? [y/N]: ")
-            if response.strip().lower() != 'y':
-                print("Aborted.")
-                return
-        destroy_all()
-        
-    elif args.status:
-        show_status()
-        
-    elif args.phase == 1:
-        if preflight_checks():
-            deploy_phase1()
-            
-    elif args.phase == 2:
-        if preflight_checks():
-            deploy_phase2()
-            
-    elif args.phase == 3:
-        run_phase3_benchmarks()
-        
+    commands = {
+        "demo": cmd_demo,
+        "destroy": cmd_destroy,
+        "status": cmd_status,
+        "benchmark": cmd_benchmark,
+        "help": cmd_help,
+        "--help": cmd_help,
+        "-h": cmd_help,
+    }
+    
+    if command in commands:
+        commands[command]()
     else:
-        full_deploy()
+        print(f"Unknown command: {command}")
+        cmd_help()
 
 
 if __name__ == "__main__":
     main()
-
-
