@@ -1,25 +1,42 @@
 """
-DB nodes (MySQL cluster) infrastructure management.
+DB Nodes Infrastructure - LOG8415E Final Assignment
+
+Manages the MySQL cluster EC2 instances:
+- 1 Manager (master) node
+- 2 Worker (replica) nodes
+
+All nodes are t3.micro instances running Ubuntu 22.04 with MySQL 8.
 """
 import base64
-import time
-from pathlib import Path
-from botocore.exceptions import ClientError
 from .aws_client import (
-    get_ec2_client, 
-    get_ec2_resource, 
-    get_project_tags, 
+    get_ec2_client,
+    get_project_tags,
     get_project_filters,
     get_config,
     wait_for_instances_running,
     wait_for_instances_terminated
 )
-from .security_groups import create_db_security_group, get_default_vpc_id
+from .security_groups import create_db_security_group
 from .keypair import create_key_pair
 
 
+# =============================================================================
+# AMI and User Data
+# =============================================================================
+
 def get_latest_ubuntu_ami() -> str:
-    """Get the latest Ubuntu 22.04 LTS AMI ID."""
+    """
+    Get the latest Ubuntu 22.04 LTS AMI ID for the region.
+    
+    Searches AWS for the most recent Ubuntu Jammy AMI owned by Canonical.
+    The AMI pattern is configured in settings.yaml.
+    
+    Returns:
+        AMI ID string (e.g., 'ami-0123456789abcdef0')
+    
+    Raises:
+        RuntimeError: If no matching AMI is found
+    """
     config = get_config()
     ec2 = get_ec2_client()
     
@@ -38,30 +55,52 @@ def get_latest_ubuntu_ami() -> str:
     # Sort by creation date and get the latest
     images = sorted(response["Images"], key=lambda x: x["CreationDate"], reverse=True)
     ami_id = images[0]["ImageId"]
-    print(f"[OK] Found Ubuntu AMI: {ami_id} ({images[0]['Name']})")
+    print(f"[OK] Found Ubuntu AMI: {ami_id}")
     return ami_id
 
 
 def get_db_user_data() -> str:
     """
     Generate minimal user-data script for DB nodes.
-    Full setup is done via SSH from Python (setup_db.py).
+    
+    Only logs initialization - actual MySQL setup is done via SSH
+    from setup_db.py for better error handling and logging.
+    
+    Returns:
+        Bash script as string
     """
-    # Minimal user-data - just ensure system is ready
-    user_data = """#!/bin/bash
+    return """#!/bin/bash
 exec > >(tee /var/log/user-data.log) 2>&1
 echo "=== Instance initialized at $(date) ==="
-echo "Waiting for cloud-init to complete system setup..."
-# The actual MySQL/Sakila setup will be done via SSH from Python
-echo "=== Ready for remote setup ==="
+echo "Ready for remote MySQL setup via SSH"
 """
-    return user_data
 
+
+# =============================================================================
+# Instance Creation
+# =============================================================================
 
 def create_db_nodes() -> list:
     """
-    Create the 3 DB node instances (manager + 2 workers).
-    Returns list of instance dictionaries.
+    Create the 3 DB node EC2 instances (1 manager + 2 workers).
+    
+    Process:
+    1. Create/get SSH key pair
+    2. Create/get security group
+    3. Find latest Ubuntu AMI
+    4. Create instances with proper tags
+    5. Wait for instances to be running
+    6. Return instance info with IPs
+    
+    Skips creation if instances already exist (idempotent).
+    
+    Returns:
+        List of instance dicts with keys:
+        - role: 'manager', 'worker1', or 'worker2'
+        - instance_id: EC2 instance ID
+        - private_ip: Private IP address
+        - public_ip: Public IP address
+        - state: Instance state
     """
     config = get_config()
     ec2 = get_ec2_client()
@@ -72,15 +111,14 @@ def create_db_nodes() -> list:
     ami_id = get_latest_ubuntu_ami()
     
     db_config = config["instances"]["db"]
-    roles = db_config["roles"]
-    instance_type = db_config["type"]
+    roles = db_config["roles"]  # ['manager', 'worker1', 'worker2']
+    instance_type = db_config["type"]  # 't3.micro'
     
-    user_data = get_db_user_data()
-    user_data_b64 = base64.b64encode(user_data.encode()).decode()
+    user_data_b64 = base64.b64encode(get_db_user_data().encode()).decode()
     
     created_instances = []
     
-    for i, role in enumerate(roles):
+    for role in roles:
         instance_name = f"{config['tags']['project']}-db-{role}"
         
         # Check if instance already exists
@@ -103,7 +141,7 @@ def create_db_nodes() -> list:
             })
             continue
         
-        # Create instance
+        # Create new instance
         print(f"[+] Creating DB node '{role}' ({instance_type})...")
         
         response = ec2.run_instances(
@@ -121,7 +159,6 @@ def create_db_nodes() -> list:
                     {"Key": "Component", "Value": "db"}
                 ]
             }],
-            # NetworkInterfaces with public IP and security group
             NetworkInterfaces=[{
                 "DeviceIndex": 0,
                 "AssociatePublicIpAddress": True,
@@ -134,18 +171,14 @@ def create_db_nodes() -> list:
         created_instances.append({
             "role": role,
             "instance_id": instance["InstanceId"],
-            "private_ip": None,  # Will be assigned after running
+            "private_ip": None,
             "public_ip": None,
             "state": instance["State"]["Name"]
         })
         print(f"[OK] DB node '{role}' created: {instance['InstanceId']}")
     
-    # Wait for all instances to be running
-    instance_ids = [inst["instance_id"] for inst in created_instances]
-    pending_ids = [
-        inst["instance_id"] for inst in created_instances 
-        if inst["state"] != "running"
-    ]
+    # Wait for pending instances to be running
+    pending_ids = [i["instance_id"] for i in created_instances if i["state"] != "running"]
     
     if pending_ids:
         print(f"[...] Waiting for {len(pending_ids)} instance(s) to be running...")
@@ -153,7 +186,9 @@ def create_db_nodes() -> list:
         print("[OK] All instances are running")
     
     # Refresh instance info to get IPs
+    instance_ids = [i["instance_id"] for i in created_instances]
     response = ec2.describe_instances(InstanceIds=instance_ids)
+    
     for reservation in response["Reservations"]:
         for instance in reservation["Instances"]:
             for inst in created_instances:
@@ -165,9 +200,20 @@ def create_db_nodes() -> list:
     return created_instances
 
 
+# =============================================================================
+# Status and Destruction
+# =============================================================================
+
 def get_db_nodes_status() -> list:
-    """Get status of all DB node instances."""
-    config = get_config()
+    """
+    Get current status of all DB node instances.
+    
+    Queries AWS for instances tagged with Component=db.
+    
+    Returns:
+        List of instance dicts sorted by role (manager, worker1, worker2)
+        Each dict contains: role, instance_id, private_ip, public_ip, state, instance_type
+    """
     ec2 = get_ec2_client()
     
     response = ec2.describe_instances(
@@ -204,11 +250,14 @@ def get_db_nodes_status() -> list:
 
 
 def destroy_db_nodes():
-    """Terminate all DB node instances."""
-    config = get_config()
+    """
+    Terminate all DB node EC2 instances.
+    
+    Finds instances by Component=db tag and terminates them.
+    Waits for termination to complete before returning.
+    """
     ec2 = get_ec2_client()
     
-    # Find all DB instances
     response = ec2.describe_instances(
         Filters=[
             {"Name": "tag:Component", "Values": ["db"]},
@@ -234,7 +283,11 @@ def destroy_db_nodes():
 
 
 def print_db_status():
-    """Print formatted status of DB nodes."""
+    """
+    Print formatted status of all DB nodes.
+    
+    Displays instance details and SSH commands for easy access.
+    """
     instances = get_db_nodes_status()
     
     if not instances:
@@ -254,14 +307,3 @@ def print_db_status():
         print(f"    Public IP:    {inst['public_ip']}")
     
     print("\n" + "=" * 70)
-    
-    # SSH command helper
-    if instances and instances[0].get("public_ip"):
-        from .keypair import get_key_path
-        key_path = get_key_path()
-        print("\nSSH Commands:")
-        for inst in instances:
-            if inst.get("public_ip"):
-                print(f"  ssh -i {key_path} ubuntu@{inst['public_ip']}  # {inst['role']}")
-    print()
-

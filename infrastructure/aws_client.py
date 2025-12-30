@@ -59,3 +59,7 @@ def wait_for_instances_terminated(instance_ids: list, max_wait: int = 300):
     )
 
 
+
+
+
+
