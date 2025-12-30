@@ -1,5 +1,8 @@
 """
-SSH client utilities using paramiko for remote command execution.
+SSH Client - LOG8415E Final Assignment
+
+Provides SSH connectivity to EC2 instances using paramiko.
+Used for remote command execution during setup and configuration.
 """
 import time
 import socket
@@ -9,22 +12,91 @@ import paramiko
 from .keypair import get_key_path
 
 
+# =============================================================================
+# Key Loading
+# =============================================================================
+
+def load_private_key(key_path: Path):
+    """
+    Load a private key from file, trying multiple formats.
+    
+    Attempts to load the key as RSA, Ed25519, ECDSA, or DSS.
+    AWS typically uses RSA keys.
+    
+    Args:
+        key_path: Path to the private key file
+    
+    Returns:
+        Paramiko key object
+    
+    Raises:
+        ValueError: If key cannot be loaded in any format
+    """
+    key_path_str = str(key_path)
+    
+    # Try each key type
+    for key_class in [paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.DSSKey]:
+        try:
+            return key_class.from_private_key_file(key_path_str)
+        except Exception:
+            continue
+    
+    raise ValueError(f"Cannot load private key from {key_path}")
+
+
+# =============================================================================
+# SSH Client Class
+# =============================================================================
+
 class SSHClient:
-    """SSH client wrapper for remote command execution."""
+    """
+    SSH client wrapper for remote command execution.
+    
+    Supports context manager protocol for automatic connection handling.
+    
+    Example:
+        with SSHClient("1.2.3.4") as ssh:
+            ssh.run("apt-get update", sudo=True)
+    """
     
     def __init__(self, host: str, username: str = "ubuntu", key_path: Optional[Path] = None):
+        """
+        Initialize SSH client.
+        
+        Args:
+            host: IP address or hostname to connect to
+            username: SSH username (default: ubuntu for AWS)
+            key_path: Path to private key (auto-detected if not provided)
+        """
         self.host = host
         self.username = username
         self.key_path = key_path or get_key_path()
         self.client: Optional[paramiko.SSHClient] = None
+        self._pkey = None
     
     def connect(self, retries: int = 10, delay: int = 15) -> bool:
         """
         Connect to the remote host with retries.
-        Returns True if successful.
+        
+        Handles common connection failures (instance not ready, SSH not started).
+        
+        Args:
+            retries: Maximum connection attempts
+            delay: Seconds between retries
+        
+        Returns:
+            True if connected successfully
         """
         self.client = paramiko.SSHClient()
         self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        
+        # Load key once
+        if self._pkey is None:
+            try:
+                self._pkey = load_private_key(self.key_path)
+            except Exception as e:
+                print(f"  [ERROR] Cannot load SSH key: {e}")
+                return False
         
         for attempt in range(1, retries + 1):
             try:
@@ -32,9 +104,11 @@ class SSHClient:
                 self.client.connect(
                     hostname=self.host,
                     username=self.username,
-                    key_filename=str(self.key_path),
+                    pkey=self._pkey,
                     timeout=10,
-                    banner_timeout=30
+                    banner_timeout=30,
+                    allow_agent=False,
+                    look_for_keys=False
                 )
                 print(f"  [OK] Connected to {self.host}")
                 return True
@@ -62,18 +136,23 @@ class SSHClient:
         Execute a command on the remote host.
         
         Args:
-            command: Command to execute
-            sudo: Whether to run with sudo
-            check: Whether to raise exception on non-zero exit
-            
+            command: Shell command to execute
+            sudo: Run with sudo privileges
+            check: Raise exception on non-zero exit code
+        
         Returns:
             Tuple of (exit_code, stdout, stderr)
+        
+        Raises:
+            RuntimeError: If check=True and command fails
         """
         if not self.client:
             raise RuntimeError("Not connected. Call connect() first.")
         
         if sudo:
-            command = f"sudo bash -c '{command}'"
+            # Escape single quotes for bash -c
+            escaped_cmd = command.replace("'", "'\"'\"'")
+            command = f"sudo bash -c '{escaped_cmd}'"
         
         stdin, stdout, stderr = self.client.exec_command(command, timeout=300)
         
@@ -88,28 +167,20 @@ class SSHClient:
         
         return exit_code, stdout_str, stderr_str
     
-    def run_script(self, script: str, sudo: bool = True) -> Tuple[int, str, str]:
+    def wait_for_cloud_init(self, timeout: int = 600) -> bool:
         """
-        Execute a multi-line script on the remote host.
-        """
-        # Write script to temp file and execute
-        script_escaped = script.replace("'", "'\\''")
-        return self.run(f"echo '{script_escaped}' | bash", sudo=sudo)
-    
-    def upload_file(self, local_path: Path, remote_path: str):
-        """Upload a file to the remote host."""
-        if not self.client:
-            raise RuntimeError("Not connected. Call connect() first.")
+        Wait for cloud-init to complete on the instance.
         
-        sftp = self.client.open_sftp()
-        try:
-            sftp.put(str(local_path), remote_path)
-        finally:
-            sftp.close()
-    
-    def wait_for_cloud_init(self, timeout: int = 600):
-        """Wait for cloud-init to complete."""
-        print(f"  [WAIT] Waiting for cloud-init to complete...")
+        Cloud-init runs on first boot to configure the instance.
+        We wait for it to finish before running our setup commands.
+        
+        Args:
+            timeout: Maximum wait time in seconds
+        
+        Returns:
+            True if cloud-init completed (or errored)
+        """
+        print(f"  [WAIT] Waiting for cloud-init...")
         start = time.time()
         
         while time.time() - start < timeout:
@@ -129,15 +200,33 @@ class SSHClient:
         return False
     
     def __enter__(self):
+        """Context manager entry - connect to host."""
         self.connect()
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - disconnect from host."""
         self.disconnect()
 
 
+# =============================================================================
+# Utility Functions
+# =============================================================================
+
 def wait_for_ssh(host: str, timeout: int = 300) -> bool:
-    """Wait for SSH to become available on a host."""
+    """
+    Wait for SSH port to become available on a host.
+    
+    Polls port 22 until it accepts connections.
+    Used before attempting SSH connection to new instances.
+    
+    Args:
+        host: IP address or hostname
+        timeout: Maximum wait time in seconds
+    
+    Returns:
+        True if SSH is available
+    """
     print(f"  [WAIT] Waiting for SSH on {host}...")
     start = time.time()
     
@@ -149,7 +238,7 @@ def wait_for_ssh(host: str, timeout: int = 300) -> bool:
             sock.close()
             
             if result == 0:
-                print(f"  [OK] SSH is available on {host}")
+                print(f"  [OK] SSH available on {host}")
                 return True
         except socket.error:
             pass
@@ -158,5 +247,3 @@ def wait_for_ssh(host: str, timeout: int = 300) -> bool:
     
     print(f"  [ERROR] Timeout waiting for SSH on {host}")
     return False
-
-
