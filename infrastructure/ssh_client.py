@@ -1,5 +1,5 @@
 """
-SSH Client - LOG8415E Final Assignment
+SSH Client
 
 Provides SSH connectivity to EC2 instances using paramiko.
 Used for remote command execution during setup and configuration.
@@ -19,18 +19,7 @@ from .keypair import get_key_path
 def load_private_key(key_path: Path):
     """
     Load a private key from file, trying multiple formats.
-    
-    Attempts to load the key as RSA, Ed25519, ECDSA, or DSS.
     AWS typically uses RSA keys.
-    
-    Args:
-        key_path: Path to the private key file
-    
-    Returns:
-        Paramiko key object
-    
-    Raises:
-        ValueError: If key cannot be loaded in any format
     """
     key_path_str = str(key_path)
     
@@ -51,7 +40,6 @@ def load_private_key(key_path: Path):
 class SSHClient:
     """
     SSH client wrapper for remote command execution.
-    
     Supports context manager protocol for automatic connection handling.
     
     Example:
@@ -60,14 +48,7 @@ class SSHClient:
     """
     
     def __init__(self, host: str, username: str = "ubuntu", key_path: Optional[Path] = None):
-        """
-        Initialize SSH client.
-        
-        Args:
-            host: IP address or hostname to connect to
-            username: SSH username (default: ubuntu for AWS)
-            key_path: Path to private key (auto-detected if not provided)
-        """
+        """Initialize SSH client."""
         self.host = host
         self.username = username
         self.key_path = key_path or get_key_path()
@@ -75,18 +56,7 @@ class SSHClient:
         self._pkey = None
     
     def connect(self, retries: int = 10, delay: int = 15) -> bool:
-        """
-        Connect to the remote host with retries.
-        
-        Handles common connection failures (instance not ready, SSH not started).
-        
-        Args:
-            retries: Maximum connection attempts
-            delay: Seconds between retries
-        
-        Returns:
-            True if connected successfully
-        """
+        """Connect to the remote host with retries."""
         self.client = paramiko.SSHClient()
         self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         
@@ -132,20 +102,7 @@ class SSHClient:
             self.client = None
     
     def run(self, command: str, sudo: bool = False, check: bool = True) -> Tuple[int, str, str]:
-        """
-        Execute a command on the remote host.
-        
-        Args:
-            command: Shell command to execute
-            sudo: Run with sudo privileges
-            check: Raise exception on non-zero exit code
-        
-        Returns:
-            Tuple of (exit_code, stdout, stderr)
-        
-        Raises:
-            RuntimeError: If check=True and command fails
-        """
+        """Execute a command on the remote host."""
         if not self.client:
             raise RuntimeError("Not connected. Call connect() first.")
         
@@ -168,18 +125,7 @@ class SSHClient:
         return exit_code, stdout_str, stderr_str
     
     def wait_for_cloud_init(self, timeout: int = 600) -> bool:
-        """
-        Wait for cloud-init to complete on the instance.
-        
-        Cloud-init runs on first boot to configure the instance.
-        We wait for it to finish before running our setup commands.
-        
-        Args:
-            timeout: Maximum wait time in seconds
-        
-        Returns:
-            True if cloud-init completed (or errored)
-        """
+        """Wait for cloud-init to complete on the instance."""
         print(f"  [WAIT] Waiting for cloud-init...")
         start = time.time()
         
@@ -214,19 +160,7 @@ class SSHClient:
 # =============================================================================
 
 def wait_for_ssh(host: str, timeout: int = 300) -> bool:
-    """
-    Wait for SSH port to become available on a host.
-    
-    Polls port 22 until it accepts connections.
-    Used before attempting SSH connection to new instances.
-    
-    Args:
-        host: IP address or hostname
-        timeout: Maximum wait time in seconds
-    
-    Returns:
-        True if SSH is available
-    """
+    """Wait for SSH port to become available on a host."""
     print(f"  [WAIT] Waiting for SSH on {host}...")
     start = time.time()
     

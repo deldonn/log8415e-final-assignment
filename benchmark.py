@@ -46,17 +46,7 @@ READ_QUERIES = [
 # =============================================================================
 
 def calculate_stats(results: list, num_queries: int, elapsed_time: float) -> Dict:
-    """
-    Calculate benchmark statistics from query results.
-    
-    Args:
-        results: List of query result dicts
-        num_queries: Total queries attempted
-        elapsed_time: Total wall-clock time in seconds
-    
-    Returns:
-        Dict with computed statistics
-    """
+    """Calculate benchmark statistics from query results."""
     errors = sum(1 for r in results if not r["success"])
     latencies = [r["latency_ms"] for r in results if r["success"]]
     targets = {}
@@ -97,16 +87,7 @@ def calculate_stats(results: list, num_queries: int, elapsed_time: float) -> Dic
 # =============================================================================
 
 def ensure_benchmark_table(gatekeeper_url: str, api_key: str) -> bool:
-    """
-    Verify the benchmark_results table exists.
-    
-    Args:
-        gatekeeper_url: Gatekeeper URL
-        api_key: API key
-    
-    Returns:
-        True if table exists
-    """
+    """Verify the benchmark_results table exists."""
     try:
         response = requests.post(
             f"{gatekeeper_url}/query/direct",
@@ -131,18 +112,7 @@ def ensure_benchmark_table(gatekeeper_url: str, api_key: str) -> bool:
 
 
 def execute_query(gatekeeper_url: str, api_key: str, query: str, strategy: str) -> Dict:
-    """
-    Execute a single SQL query through the Gatekeeper.
-    
-    Args:
-        gatekeeper_url: Gatekeeper URL
-        api_key: API key
-        query: SQL query string
-        strategy: Routing strategy name
-    
-    Returns:
-        Dict with success, latency_ms, target_host, error
-    """
+    """Execute a single SQL query through the Gatekeeper."""
     start_time = time.perf_counter()
     
     endpoints = {
@@ -183,18 +153,7 @@ def execute_query(gatekeeper_url: str, api_key: str, query: str, strategy: str) 
 # =============================================================================
 
 def run_write_benchmark(gatekeeper_url: str, api_key: str, strategy: str, num_queries: int = DEFAULT_NUM_WRITES) -> Dict:
-    """
-    Run WRITE benchmark with INSERT queries (parallel execution).
-    
-    Args:
-        gatekeeper_url: Gatekeeper URL
-        api_key: API key
-        strategy: Current strategy name
-        num_queries: Number of INSERT queries
-    
-    Returns:
-        Dict with benchmark statistics
-    """
+    """Run WRITE benchmark with INSERT queries (parallel execution)."""
     print(f"\n  Running {num_queries} WRITE queries...")
     
     def make_write_query(i):
@@ -226,18 +185,7 @@ def run_write_benchmark(gatekeeper_url: str, api_key: str, strategy: str, num_qu
 
 
 def run_read_benchmark(gatekeeper_url: str, api_key: str, strategy: str, num_queries: int = DEFAULT_NUM_READS) -> Dict:
-    """
-    Run READ benchmark with SELECT queries (parallel execution).
-    
-    Args:
-        gatekeeper_url: Gatekeeper URL
-        api_key: API key
-        strategy: Current strategy name
-        num_queries: Number of SELECT queries
-    
-    Returns:
-        Dict with benchmark statistics
-    """
+    """Run READ benchmark with SELECT queries (parallel execution)."""
     print(f"\n  Running {num_queries} READ queries...")
     
     def make_read_query(i):
@@ -267,19 +215,7 @@ def run_read_benchmark(gatekeeper_url: str, api_key: str, strategy: str, num_que
 
 
 def run_strategy_benchmark(gatekeeper_url: str, api_key: str, strategy: str, num_writes: int, num_reads: int) -> Dict:
-    """
-    Run complete benchmark for a single strategy.
-    
-    Args:
-        gatekeeper_url: Gatekeeper URL
-        api_key: API key
-        strategy: Strategy to test
-        num_writes: Number of write queries
-        num_reads: Number of read queries
-    
-    Returns:
-        Dict with strategy name, timestamp, and statistics
-    """
+    """Run complete benchmark for a single strategy."""
     print(f"\n{'='*70}")
     print(f" BENCHMARK: {strategy.upper()}")
     print(f"{'='*70}")
@@ -305,19 +241,7 @@ def run_strategy_benchmark(gatekeeper_url: str, api_key: str, strategy: str, num
 
 
 def run_all_benchmarks(gatekeeper_url: str, api_key: str, num_writes: int, num_reads: int, output_dir: str) -> Dict:
-    """
-    Run benchmarks for all three strategies and save results.
-    
-    Args:
-        gatekeeper_url: Gatekeeper URL
-        api_key: API key
-        num_writes: Writes per strategy
-        num_reads: Reads per strategy
-        output_dir: Directory for result files
-    
-    Returns:
-        Dict with all benchmark results
-    """
+    """Run benchmarks for all three strategies and save results."""
     print("\n" + "=" * 70)
     print(" LOG8415E - BENCHMARK SUITE (Parallel)")
     print("=" * 70)

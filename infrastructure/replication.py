@@ -1,5 +1,5 @@
 """
-MySQL Replication - LOG8415E Final Assignment
+MySQL Replication
 
 Configures GTID-based replication between MySQL nodes:
 - Manager (master): Accepts writes, replicates to workers
@@ -24,18 +24,7 @@ MYSQL_CNF = "/etc/mysql/mysql.conf.d/mysqld.cnf"
 def run_mysql_command(ssh: SSHClient, root_pass: str, sql: str, description: str = "") -> tuple:
     """
     Execute a MySQL command safely using a temporary SQL file.
-    
-    Uses base64 encoding to avoid shell escaping issues with special
-    characters in SQL queries (quotes, semicolons, etc.).
-    
-    Args:
-        ssh: SSH client connected to the MySQL server
-        root_pass: MySQL root password
-        sql: SQL command to execute
-        description: Optional description for error logging
-    
-    Returns:
-        Tuple of (success: bool, output: str)
+    Uses base64 encoding to avoid shell escaping issues.
     """
     # Encode SQL to base64 to avoid shell escaping issues
     sql_b64 = base64.b64encode(sql.encode()).decode()
@@ -63,17 +52,7 @@ def run_mysql_command(ssh: SSHClient, root_pass: str, sql: str, description: str
 # =============================================================================
 
 def _set_mysql_cnf_kv(ssh: SSHClient, key: str, value: str) -> None:
-    """
-    Set a key=value pair in MySQL configuration file.
-    
-    Replaces existing value if key exists, appends if not.
-    Handles both commented and uncommented lines.
-    
-    Args:
-        ssh: SSH client
-        key: Configuration key (e.g., 'bind-address')
-        value: Configuration value (e.g., '0.0.0.0')
-    """
+    """Set a key=value pair in MySQL configuration file."""
     cmd = (
         f"if grep -q '^{key}\\s*=' {MYSQL_CNF} 2>/dev/null; then "
         f"  sed -i 's|^{key}\\s*=.*|{key} = {value}|' {MYSQL_CNF}; "
@@ -89,22 +68,7 @@ def _set_mysql_cnf_kv(ssh: SSHClient, key: str, value: str) -> None:
 def ensure_mysql_network_and_id(ssh: SSHClient, server_id: int, is_manager: bool) -> bool:
     """
     Configure MySQL daemon for replication.
-    
-    Sets critical configuration options:
-    - bind-address = 0.0.0.0 (listen on all interfaces, required for remote connections)
-    - server-id (unique per node in the cluster)
-    - Manager: log_bin, binlog_format, gtid_mode
-    - Workers: read_only, super_read_only, relay_log
-    
-    Restarts MySQL and verifies it's listening on the network.
-    
-    Args:
-        ssh: SSH client
-        server_id: Unique server ID (1 for manager, 2/3 for workers)
-        is_manager: True if this is the manager node
-    
-    Returns:
-        True if MySQL is properly configured and listening
+    Sets bind-address, server-id, GTID mode, and role-specific options.
     """
     print(f"    Configuring MySQL daemon (server_id={server_id}, manager={is_manager})...")
     
@@ -153,22 +117,7 @@ def ensure_mysql_network_and_id(ssh: SSHClient, server_id: int, is_manager: bool
 # =============================================================================
 
 def configure_manager_for_replication(ssh: SSHClient, config: dict) -> bool:
-    """
-    Configure the manager node as replication source (master).
-    
-    Steps:
-    1. Configure MySQL daemon (bind-address, server-id, GTID)
-    2. Test MySQL connection
-    3. Create replication user with REPLICATION SLAVE privilege
-    4. Verify GTID mode is enabled
-    
-    Args:
-        ssh: SSH client connected to manager
-        config: Project configuration
-    
-    Returns:
-        True if manager is properly configured
-    """
+    """Configure the manager node as replication source (master)."""
     print("  [1/3] Configuring Manager for replication...")
     
     mysql_config = config["mysql"]
@@ -226,25 +175,7 @@ def configure_manager_for_replication(ssh: SSHClient, config: dict) -> bool:
 # =============================================================================
 
 def configure_worker_as_replica(ssh: SSHClient, config: dict, manager_private_ip: str, server_id: int) -> bool:
-    """
-    Configure a worker node as a replica of the manager.
-    
-    Steps:
-    1. Configure MySQL daemon (bind-address, server-id, read_only)
-    2. Test network connectivity to manager
-    3. Stop any existing replication
-    4. Configure replication source (CHANGE REPLICATION SOURCE TO)
-    5. Start replication
-    
-    Args:
-        ssh: SSH client connected to worker
-        config: Project configuration
-        manager_private_ip: Private IP of the manager node
-        server_id: Unique server ID (2 or 3)
-    
-    Returns:
-        True if replica is properly configured
-    """
+    """Configure a worker node as a replica of the manager."""
     print(f"  [2/3] Configuring replica (server_id={server_id})...")
     print(f"    Manager IP: {manager_private_ip}")
     
@@ -309,21 +240,7 @@ def configure_worker_as_replica(ssh: SSHClient, config: dict, manager_private_ip
 # =============================================================================
 
 def verify_replication_status(ssh: SSHClient, config: dict) -> Dict:
-    """
-    Verify replication status on a replica node.
-    
-    Parses SHOW REPLICA STATUS output to extract key metrics:
-    - Replica_IO_Running: Connection to master is active
-    - Replica_SQL_Running: SQL thread is applying changes
-    - Seconds_Behind_Source: Replication lag
-    
-    Args:
-        ssh: SSH client connected to replica
-        config: Project configuration
-    
-    Returns:
-        Dict with io_running, sql_running, seconds_behind, last_error
-    """
+    """Verify replication status on a replica node."""
     print("  [3/3] Verifying replication status...")
     
     root_pass = config["mysql"]["root_password"]
@@ -364,20 +281,7 @@ def verify_replication_status(ssh: SSHClient, config: dict) -> Dict:
 
 
 def test_replication(manager_ssh: SSHClient, worker_ssh: SSHClient, config: dict) -> bool:
-    """
-    Test replication by inserting data on manager and verifying on worker.
-    
-    Creates a test table, inserts a unique row on manager,
-    then checks if the row appears on the worker (silently).
-    
-    Args:
-        manager_ssh: SSH client connected to manager
-        worker_ssh: SSH client connected to worker
-        config: Project configuration
-    
-    Returns:
-        True if test row was replicated to worker
-    """
+    """Test replication by inserting data on manager and verifying on worker."""
     root_pass = config["mysql"]["root_password"]
     test_value = f"replication_test_{int(time.time())}"
     
@@ -410,22 +314,7 @@ def test_replication(manager_ssh: SSHClient, worker_ssh: SSHClient, config: dict
 # =============================================================================
 
 def setup_replication(db_nodes: List[Dict]) -> Dict:
-    """
-    Configure MySQL replication for the entire cluster.
-    
-    Orchestrates the full replication setup:
-    1. Find manager and worker nodes from db_nodes list
-    2. Configure manager as replication source
-    3. Configure each worker as replica
-    4. Verify replication status on each worker
-    5. Run replication test
-    
-    Args:
-        db_nodes: List of node dicts with 'role', 'public_ip', 'private_ip'
-    
-    Returns:
-        Dict with 'success' bool and detailed results per node
-    """
+    """Configure MySQL replication for the entire cluster."""
     config = get_config()
     
     # Find manager and workers
@@ -502,17 +391,7 @@ def setup_replication(db_nodes: List[Dict]) -> Dict:
 
 
 def verify_all_replication(db_nodes: List[Dict]) -> List[Dict]:
-    """
-    Verify replication status on all worker nodes.
-    
-    Used for checking replication health after setup.
-    
-    Args:
-        db_nodes: List of node dicts with 'role', 'public_ip'
-    
-    Returns:
-        List of status dicts for each worker
-    """
+    """Verify replication status on all worker nodes."""
     config = get_config()
     results = []
     

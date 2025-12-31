@@ -1,5 +1,5 @@
 """
-DB Nodes Infrastructure - LOG8415E Final Assignment
+DB Nodes Infrastructure
 
 Manages the MySQL cluster EC2 instances:
 - 1 Manager (master) node
@@ -25,18 +25,7 @@ from .keypair import create_key_pair
 # =============================================================================
 
 def get_latest_ubuntu_ami() -> str:
-    """
-    Get the latest Ubuntu 22.04 LTS AMI ID for the region.
-    
-    Searches AWS for the most recent Ubuntu Jammy AMI owned by Canonical.
-    The AMI pattern is configured in settings.yaml.
-    
-    Returns:
-        AMI ID string (e.g., 'ami-0123456789abcdef0')
-    
-    Raises:
-        RuntimeError: If no matching AMI is found
-    """
+    """Get the latest Ubuntu 22.04 LTS AMI ID for the region."""
     config = get_config()
     ec2 = get_ec2_client()
     
@@ -60,15 +49,7 @@ def get_latest_ubuntu_ami() -> str:
 
 
 def get_db_user_data() -> str:
-    """
-    Generate minimal user-data script for DB nodes.
-    
-    Only logs initialization - actual MySQL setup is done via SSH
-    from setup_db.py for better error handling and logging.
-    
-    Returns:
-        Bash script as string
-    """
+    """Generate minimal user-data script for DB nodes."""
     return """#!/bin/bash
 exec > >(tee /var/log/user-data.log) 2>&1
 echo "=== Instance initialized at $(date) ==="
@@ -83,24 +64,7 @@ echo "Ready for remote MySQL setup via SSH"
 def create_db_nodes() -> list:
     """
     Create the 3 DB node EC2 instances (1 manager + 2 workers).
-    
-    Process:
-    1. Create/get SSH key pair
-    2. Create/get security group
-    3. Find latest Ubuntu AMI
-    4. Create instances with proper tags
-    5. Wait for instances to be running
-    6. Return instance info with IPs
-    
     Skips creation if instances already exist (idempotent).
-    
-    Returns:
-        List of instance dicts with keys:
-        - role: 'manager', 'worker1', or 'worker2'
-        - instance_id: EC2 instance ID
-        - private_ip: Private IP address
-        - public_ip: Public IP address
-        - state: Instance state
     """
     config = get_config()
     ec2 = get_ec2_client()
@@ -205,15 +169,7 @@ def create_db_nodes() -> list:
 # =============================================================================
 
 def get_db_nodes_status() -> list:
-    """
-    Get current status of all DB node instances.
-    
-    Queries AWS for instances tagged with Component=db.
-    
-    Returns:
-        List of instance dicts sorted by role (manager, worker1, worker2)
-        Each dict contains: role, instance_id, private_ip, public_ip, state, instance_type
-    """
+    """Get current status of all DB node instances."""
     ec2 = get_ec2_client()
     
     response = ec2.describe_instances(
@@ -250,12 +206,7 @@ def get_db_nodes_status() -> list:
 
 
 def destroy_db_nodes():
-    """
-    Terminate all DB node EC2 instances.
-    
-    Finds instances by Component=db tag and terminates them.
-    Waits for termination to complete before returning.
-    """
+    """Terminate all DB node EC2 instances."""
     ec2 = get_ec2_client()
     
     response = ec2.describe_instances(
@@ -283,11 +234,7 @@ def destroy_db_nodes():
 
 
 def print_db_status():
-    """
-    Print formatted status of all DB nodes.
-    
-    Displays instance details and SSH commands for easy access.
-    """
+    """Print formatted status of all DB nodes."""
     instances = get_db_nodes_status()
     
     if not instances:

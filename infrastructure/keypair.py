@@ -1,5 +1,5 @@
 """
-Key Pair Management - LOG8415E Final Assignment
+Key Pair Management
 
 Manages EC2 SSH key pairs for instance access.
 Creates keys in ~/.ssh/ directory and handles Windows file locking issues.
@@ -19,14 +19,7 @@ from .aws_client import get_ec2_client, get_config
 # =============================================================================
 
 def get_key_path() -> Path:
-    """
-    Get path to the private key file.
-    
-    Keys are stored in user's ~/.ssh directory.
-    
-    Returns:
-        Path to .pem file
-    """
+    """Get path to the private key file (~/.ssh/<key_name>.pem)."""
     config = get_config()
     key_name = config["aws"]["key_pair_name"]
     ssh_dir = Path.home() / ".ssh"
@@ -39,21 +32,7 @@ def get_key_path() -> Path:
 # =============================================================================
 
 def safe_unlink(path: Path, retries: int = 5, delay_s: float = 0.2) -> bool:
-    """
-    Delete a file robustly on Windows.
-    
-    Handles common issues:
-    - Read-only flag preventing deletion
-    - File locked by antivirus or IDE
-    
-    Args:
-        path: Path to file to delete
-        retries: Number of retry attempts
-        delay_s: Delay between retries
-    
-    Returns:
-        True if file was deleted
-    """
+    """Delete a file robustly on Windows (handles read-only flag and file locks)."""
     # Remove read-only flag
     try:
         os.chmod(path, stat.S_IWRITE)
@@ -75,17 +54,7 @@ def safe_unlink(path: Path, retries: int = 5, delay_s: float = 0.2) -> bool:
 
 
 def force_delete_windows(path: Path) -> bool:
-    """
-    Last-resort file deletion using Windows commands.
-    
-    Uses attrib and del commands to force delete.
-    
-    Args:
-        path: Path to file to delete
-    
-    Returns:
-        True if file was deleted
-    """
+    """Last-resort file deletion using Windows commands."""
     try:
         subprocess.run(["attrib", "-R", str(path)], check=False, capture_output=True)
         subprocess.run(["cmd", "/c", "del", "/f", "/q", str(path)], check=True, capture_output=True)
@@ -99,15 +68,7 @@ def force_delete_windows(path: Path) -> bool:
 # =============================================================================
 
 def create_key_pair() -> str:
-    """
-    Create EC2 key pair if it doesn't exist.
-    
-    Creates RSA key pair in AWS and saves private key locally.
-    Sets proper permissions (chmod 400) on Unix systems.
-    
-    Returns:
-        Key pair name
-    """
+    """Create EC2 key pair if it doesn't exist. Saves private key locally."""
     config = get_config()
     ec2 = get_ec2_client()
     key_name = config["aws"]["key_pair_name"]
@@ -151,12 +112,7 @@ def create_key_pair() -> str:
 
 
 def delete_key_pair():
-    """
-    Delete the EC2 key pair from AWS and local file.
-    
-    Uses robust deletion for Windows compatibility
-    (handles file locks from IDEs/antivirus).
-    """
+    """Delete the EC2 key pair from AWS and local file."""
     config = get_config()
     ec2 = get_ec2_client()
     key_name = config["aws"]["key_pair_name"]

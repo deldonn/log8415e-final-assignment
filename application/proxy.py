@@ -1,5 +1,5 @@
 """
-Proxy Service - LOG8415E Final Assignment
+Proxy Service
 
 Internal service that routes SQL queries to MySQL nodes.
 Routing is based on:
@@ -77,15 +77,7 @@ class StrategyRequest(BaseModel):
 def get_db_connection(host: str):
     """
     Create a MySQL connection to the specified host.
-    
     Uses context manager pattern for automatic connection cleanup.
-    Connection settings are optimized for t3.micro instances.
-    
-    Args:
-        host: MySQL server IP address (manager or worker)
-    
-    Yields:
-        pymysql connection object
     """
     conn = None
     try:
@@ -108,18 +100,7 @@ def get_db_connection(host: str):
 def execute_query(host: str, query: str, args: Optional[List] = None) -> dict:
     """
     Execute a SQL query on the specified MySQL host.
-    
-    Automatically detects SELECT queries and returns appropriate response:
-    - SELECT: Returns {'data': [rows]}
-    - INSERT/UPDATE/DELETE: Returns {'rows_affected': count}
-    
-    Args:
-        host: Target MySQL server IP
-        query: SQL query string
-        args: Optional query parameters for prepared statements
-    
-    Returns:
-        Dict with 'data' or 'rows_affected' depending on query type
+    SELECT returns rows, other statements return rows_affected.
     """
     with get_db_connection(host) as conn:
         with conn.cursor() as cursor:
@@ -144,14 +125,7 @@ current_strategy_name: str = "direct_hit"
 def init_strategy(name: str = "direct_hit"):
     """
     Initialize or change the routing strategy.
-    
-    Available strategies:
-    - direct_hit: All queries go to manager
-    - random: READs go to random worker, WRITEs to manager
-    - customized: READs go to lowest-latency worker
-    
-    Args:
-        name: Strategy name to activate
+    Available: direct_hit, random, customized.
     """
     global current_strategy, current_strategy_name
     
@@ -163,15 +137,7 @@ def init_strategy(name: str = "direct_hit"):
 def get_target_host(query_type: str) -> str:
     """
     Determine target MySQL host based on query type and strategy.
-    
-    WRITEs always go to manager (master).
-    READs are routed based on current strategy.
-    
-    Args:
-        query_type: 'read' or 'write'
-    
-    Returns:
-        IP address of target MySQL host
+    WRITEs always go to manager, READs are routed based on strategy.
     """
     if current_strategy is None:
         init_strategy()
@@ -195,10 +161,7 @@ app = FastAPI(
 
 @app.on_event("startup")
 async def startup_event():
-    """
-    FastAPI startup event handler.
-    Initializes the default routing strategy when service starts.
-    """
+    """FastAPI startup event handler. Initializes the default routing strategy."""
     init_strategy(current_strategy_name)
     logger.info(f"Proxy started with strategy: {current_strategy_name}")
     logger.info(f"Manager: {MANAGER_HOST}")
@@ -207,13 +170,7 @@ async def startup_event():
 
 @app.get("/health")
 async def health_check():
-    """
-    Health check endpoint.
-    Returns current configuration and strategy.
-    
-    Returns:
-        Dict with status, strategy, manager IP, and worker IPs
-    """
+    """Health check endpoint. Returns current configuration and strategy."""
     return {
         "status": "healthy",
         "strategy": current_strategy_name,
@@ -224,12 +181,7 @@ async def health_check():
 
 @app.get("/strategy")
 async def get_current_strategy():
-    """
-    Get current routing strategy.
-    
-    Returns:
-        Dict with current strategy and list of available strategies
-    """
+    """Get current routing strategy."""
     return {
         "strategy": current_strategy_name,
         "available": ["direct_hit", "random", "customized"]
@@ -238,18 +190,7 @@ async def get_current_strategy():
 
 @app.post("/strategy")
 async def set_strategy(request: StrategyRequest):
-    """
-    Change the routing strategy.
-    
-    Args:
-        request: StrategyRequest with new strategy name
-    
-    Returns:
-        Dict confirming strategy change
-    
-    Raises:
-        HTTPException 400: If strategy name is invalid
-    """
+    """Change the routing strategy."""
     try:
         init_strategy(request.strategy)
         return {"success": True, "strategy": current_strategy_name}
@@ -261,18 +202,7 @@ async def set_strategy(request: StrategyRequest):
 async def execute_sql_query(request: QueryRequest):
     """
     Execute a SQL query with automatic routing.
-    
-    Process:
-    1. Classify query as READ or WRITE
-    2. Get target host based on strategy
-    3. Execute query on target
-    4. Return results with metadata
-    
-    Args:
-        request: QueryRequest with SQL query and optional args
-    
-    Returns:
-        QueryResponse with results, target host, and latency
+    Process: Classify -> Get target -> Execute -> Return results.
     """
     start_time = time.perf_counter()
     

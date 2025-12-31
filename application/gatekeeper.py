@@ -1,5 +1,5 @@
 """
-Gatekeeper Service - LOG8415E Final Assignment
+Gatekeeper Service 
 
 Single public-facing entry point (Gatekeeper + Trusted Host patterns).
 Responsibilities:
@@ -84,17 +84,7 @@ def validate_query(query: str) -> tuple[bool, str]:
     """
     Validate a SQL query for security.
     
-    Checks:
-    - Maximum length
-    - Non-empty query
-    - No multi-statements (SQL injection prevention)
-    - No DDL/dangerous operations
-    
-    Args:
-        query: SQL query string to validate
-    
-    Returns:
-        Tuple of (is_valid, error_message)
+    Checks: max length, non-empty, no multi-statements, no DDL/dangerous operations.
     """
     if len(query) > MAX_QUERY_LENGTH:
         return False, f"Query too long (max {MAX_QUERY_LENGTH} characters)"
@@ -115,15 +105,7 @@ def validate_query(query: str) -> tuple[bool, str]:
 
 
 def verify_api_key(api_key: Optional[str]) -> bool:
-    """
-    Verify the API key provided in X-API-Key header.
-    
-    Args:
-        api_key: API key from request header
-    
-    Returns:
-        True if key is valid, False otherwise
-    """
+    """Verify the API key provided in X-API-Key header."""
     return api_key == API_KEY if api_key else False
 
 
@@ -132,19 +114,7 @@ def verify_api_key(api_key: Optional[str]) -> bool:
 # =============================================================================
 
 async def forward_to_proxy(endpoint: str, payload: dict) -> dict:
-    """
-    Forward a request to the Proxy service.
-    
-    Args:
-        endpoint: Proxy endpoint (/query, /strategy, etc.)
-        payload: JSON data to send
-    
-    Returns:
-        JSON response from Proxy
-    
-    Raises:
-        HTTPException: If Proxy is unavailable (502)
-    """
+    """Forward a request to the Proxy service."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             response = await client.post(f"{PROXY_URL}{endpoint}", json=payload)
@@ -155,15 +125,7 @@ async def forward_to_proxy(endpoint: str, payload: dict) -> dict:
 
 
 async def change_proxy_strategy(strategy: str) -> bool:
-    """
-    Change the routing strategy on the Proxy.
-    
-    Args:
-        strategy: Strategy name (direct_hit, random, customized)
-    
-    Returns:
-        True if change successful, False otherwise
-    """
+    """Change the routing strategy on the Proxy."""
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             response = await client.post(f"{PROXY_URL}/strategy", json={"strategy": strategy})
@@ -186,24 +148,13 @@ app = FastAPI(
 
 @app.get("/health")
 async def health_check():
-    """
-    Health check endpoint (no authentication required).
-    Used to verify the service is running.
-    
-    Returns:
-        Dict with status and proxy URL
-    """
+    """Health check endpoint (no authentication required)."""
     return {"status": "healthy", "proxy_url": PROXY_URL}
 
 
 @app.get("/")
 async def root():
-    """
-    Root endpoint - Service information.
-    
-    Returns:
-        Dict with service name and available endpoints
-    """
+    """Root endpoint - Service information."""
     return {
         "service": "LOG8415E Gatekeeper",
         "endpoints": ["/health", "/query", "/query/direct", "/query/random", "/query/customized"]
@@ -215,18 +166,7 @@ async def execute_query(request: QueryRequest, x_api_key: Optional[str] = Header
     """
     Execute a SQL query through the Proxy.
     
-    Process:
-    1. Authentication (X-API-Key)
-    2. Query validation
-    3. Strategy change (if specified)
-    4. Forward to Proxy
-    
-    Args:
-        request: QueryRequest with SQL query
-        x_api_key: API key from header
-    
-    Returns:
-        QueryResponse with results or error
+    Process: Authentication -> Validation -> Strategy change -> Forward to Proxy.
     """
     # 1. Authentication
     if not verify_api_key(x_api_key):
@@ -269,68 +209,28 @@ async def execute_query(request: QueryRequest, x_api_key: Optional[str] = Header
 
 @app.post("/query/direct")
 async def direct_query(request: QueryRequest, x_api_key: Optional[str] = Header(None)):
-    """
-    Execute a query with direct_hit strategy.
-    All queries go to the manager (master) node.
-    
-    Args:
-        request: QueryRequest with SQL query
-        x_api_key: API key from header
-    
-    Returns:
-        QueryResponse with results
-    """
+    """Execute a query with direct_hit strategy. All queries go to the manager."""
     request.strategy = "direct_hit"
     return await execute_query(request, x_api_key)
 
 
 @app.post("/query/random")
 async def random_query(request: QueryRequest, x_api_key: Optional[str] = Header(None)):
-    """
-    Execute a query with random strategy.
-    READs go to a random worker, WRITEs go to manager.
-    
-    Args:
-        request: QueryRequest with SQL query
-        x_api_key: API key from header
-    
-    Returns:
-        QueryResponse with results
-    """
+    """Execute a query with random strategy. READs go to a random worker."""
     request.strategy = "random"
     return await execute_query(request, x_api_key)
 
 
 @app.post("/query/customized")
 async def customized_query(request: QueryRequest, x_api_key: Optional[str] = Header(None)):
-    """
-    Execute a query with customized (ping-based) strategy.
-    READs go to the worker with lowest latency.
-    
-    Args:
-        request: QueryRequest with SQL query
-        x_api_key: API key from header
-    
-    Returns:
-        QueryResponse with results
-    """
+    """Execute a query with customized (ping-based) strategy. READs go to lowest-latency worker."""
     request.strategy = "customized"
     return await execute_query(request, x_api_key)
 
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    """
-    Custom HTTP exception handler.
-    Returns errors in standardized JSON format.
-    
-    Args:
-        request: FastAPI Request object
-        exc: HTTPException that was raised
-    
-    Returns:
-        JSONResponse with error details
-    """
+    """Custom HTTP exception handler. Returns errors in standardized JSON format."""
     return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})
 
 

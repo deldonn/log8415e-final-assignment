@@ -1,5 +1,5 @@
 """
-Routing Strategies - LOG8415E Final Assignment
+Routing Strategies
 
 Defines routing strategies for distributing SQL queries across MySQL nodes.
 
@@ -20,17 +20,7 @@ from typing import List
 def measure_tcp_latency(host: str, port: int = 3306, timeout: float = 2.0) -> float:
     """
     Measure TCP connection latency to a MySQL host.
-    
     Creates a TCP socket connection and measures round-trip time.
-    Used by customized strategy to find the fastest worker.
-    
-    Args:
-        host: Target host IP address
-        port: MySQL port (default 3306)
-        timeout: Connection timeout in seconds
-    
-    Returns:
-        Latency in milliseconds, or infinity if connection fails
     """
     try:
         start = time.perf_counter()
@@ -130,10 +120,7 @@ class CustomizedPingStrategy(RoutingStrategy):
         return {host: measure_tcp_latency(host) for host in self.worker_hosts}
     
     def get_read_target(self) -> str:
-        """
-        Returns the worker with lowest latency.
-        Uses cached result if still valid (within TTL).
-        """
+        """Returns the worker with lowest latency. Uses cached result if valid."""
         if not self.worker_hosts:
             return self.manager_host
         
@@ -169,20 +156,7 @@ STRATEGIES = {
 
 
 def get_strategy(name: str, manager_host: str, worker_hosts: List[str]) -> RoutingStrategy:
-    """
-    Factory function to create a strategy by name.
-    
-    Args:
-        name: Strategy name ('direct_hit', 'random', 'customized')
-        manager_host: IP of the manager node
-        worker_hosts: List of worker node IPs
-    
-    Returns:
-        RoutingStrategy instance
-    
-    Raises:
-        ValueError: If strategy name is unknown
-    """
+    """Factory function to create a strategy by name."""
     if name not in STRATEGIES:
         raise ValueError(f"Unknown strategy: {name}. Available: {list(STRATEGIES.keys())}")
     
@@ -196,17 +170,7 @@ def get_strategy(name: str, manager_host: str, worker_hosts: List[str]) -> Routi
 def classify_query(query: str) -> str:
     """
     Classify a SQL query as READ or WRITE.
-    
-    Used by the Proxy to determine routing:
-    - READ queries can go to any node (based on strategy)
-    - WRITE queries must go to manager
-    
-    Args:
-        query: SQL query string
-    
-    Returns:
-        'read' for SELECT queries (except FOR UPDATE)
-        'write' for INSERT, UPDATE, DELETE, etc.
+    SELECT -> read (except FOR UPDATE/SHARE), everything else -> write.
     """
     query_upper = query.strip().upper()
     

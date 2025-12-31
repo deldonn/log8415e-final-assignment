@@ -1,5 +1,5 @@
 """
-Proxy & Gatekeeper Setup - LOG8415E Final Assignment
+Proxy & Gatekeeper Setup
 
 Deploys the Proxy and Gatekeeper services on EC2 instances:
 - Installs Python dependencies
@@ -21,34 +21,19 @@ from .config import get_config
 # =============================================================================
 
 def get_proxy_code() -> str:
-    """
-    Load the Proxy application code from local file.
-    
-    Returns:
-        Python source code as string, empty if file not found
-    """
+    """Load the Proxy application code from local file."""
     app_path = Path(__file__).parent.parent / "application" / "proxy.py"
     return app_path.read_text(encoding="utf-8") if app_path.exists() else ""
 
 
 def get_strategies_code() -> str:
-    """
-    Load the routing strategies module code from local file.
-    
-    Returns:
-        Python source code as string, empty if file not found
-    """
+    """Load the routing strategies module code from local file."""
     app_path = Path(__file__).parent.parent / "application" / "strategies.py"
     return app_path.read_text(encoding="utf-8") if app_path.exists() else ""
 
 
 def get_gatekeeper_code() -> str:
-    """
-    Load the Gatekeeper application code from local file.
-    
-    Returns:
-        Python source code as string, empty if file not found
-    """
+    """Load the Gatekeeper application code from local file."""
     app_path = Path(__file__).parent.parent / "application" / "gatekeeper.py"
     return app_path.read_text(encoding="utf-8") if app_path.exists() else ""
 
@@ -58,20 +43,7 @@ def get_gatekeeper_code() -> str:
 # =============================================================================
 
 def get_proxy_service(config: dict) -> str:
-    """
-    Generate systemd service file for Proxy.
-    
-    Service configuration:
-    - Runs as ubuntu user
-    - Uses uvicorn ASGI server
-    - Auto-restarts on failure
-    
-    Args:
-        config: Project configuration with proxy port
-    
-    Returns:
-        Systemd service file content
-    """
+    """Generate systemd service file for Proxy."""
     port = config["proxy"]["port"]
     return f"""[Unit]
 Description=LOG8415E Proxy Service
@@ -92,20 +64,7 @@ WantedBy=multi-user.target
 
 
 def get_gatekeeper_service(config: dict) -> str:
-    """
-    Generate systemd service file for Gatekeeper.
-    
-    Service configuration:
-    - Runs as ubuntu user
-    - Uses uvicorn ASGI server
-    - Auto-restarts on failure
-    
-    Args:
-        config: Project configuration with gatekeeper port
-    
-    Returns:
-        Systemd service file content
-    """
+    """Generate systemd service file for Gatekeeper."""
     port = config["gatekeeper"]["port"]
     return f"""[Unit]
 Description=LOG8415E Gatekeeper Service
@@ -130,18 +89,7 @@ WantedBy=multi-user.target
 # =============================================================================
 
 def setup_python_env(ssh: SSHClient):
-    """
-    Setup Python virtual environment and install dependencies.
-    
-    Creates /home/ubuntu/app directory with venv and installs:
-    - fastapi: Web framework
-    - uvicorn: ASGI server
-    - pymysql: MySQL driver
-    - httpx: Async HTTP client
-    
-    Args:
-        ssh: SSH client connected to the instance
-    """
+    """Setup Python virtual environment and install dependencies."""
     print("  [1/4] Setting up Python environment...")
     
     commands = """
@@ -156,19 +104,7 @@ python3 -m venv venv
 
 
 def deploy_proxy_app(ssh: SSHClient, config: dict, db_nodes: list):
-    """
-    Deploy Proxy application code to the instance.
-    
-    Deploys three files:
-    - config.py: Generated configuration (DB IPs, credentials)
-    - strategies.py: Routing strategy implementations
-    - proxy.py: Main application
-    
-    Args:
-        ssh: SSH client
-        config: Project configuration
-        db_nodes: List of DB node info with private IPs
-    """
+    """Deploy Proxy application code to the instance."""
     print("  [2/4] Deploying Proxy application...")
     
     proxy_code = get_proxy_code()
@@ -206,18 +142,7 @@ PROXY_PORT = {config["proxy"]["port"]}
 
 
 def deploy_gatekeeper_app(ssh: SSHClient, config: dict, proxy_private_ip: str):
-    """
-    Deploy Gatekeeper application code to the instance.
-    
-    Deploys two files:
-    - config.py: Generated configuration (API key, Proxy IP)
-    - gatekeeper.py: Main application
-    
-    Args:
-        ssh: SSH client
-        config: Project configuration
-        proxy_private_ip: Private IP of the Proxy instance
-    """
+    """Deploy Gatekeeper application code to the instance."""
     print("  [2/4] Deploying Gatekeeper application...")
     
     gatekeeper_code = get_gatekeeper_code()
@@ -241,17 +166,7 @@ GATEKEEPER_PORT = {config["gatekeeper"]["port"]}
 
 
 def create_systemd_service(ssh: SSHClient, service_name: str, service_content: str):
-    """
-    Create and start a systemd service.
-    
-    Writes service file to /etc/systemd/system/, reloads daemon,
-    enables service for boot, and starts it.
-    
-    Args:
-        ssh: SSH client
-        service_name: Name of the service (without .service)
-        service_content: Systemd service file content
-    """
+    """Create and start a systemd service."""
     print(f"  [3/4] Creating systemd service: {service_name}...")
     
     ssh.run(f"cat > /etc/systemd/system/{service_name}.service << 'EOF'\n{service_content}\nEOF", sudo=True)
@@ -263,21 +178,7 @@ def create_systemd_service(ssh: SSHClient, service_name: str, service_content: s
 
 
 def verify_service(ssh: SSHClient, service_name: str, port: int) -> bool:
-    """
-    Verify a service is running and listening on its port.
-    
-    Checks:
-    - systemd service is active
-    - Port is listening (with retry)
-    
-    Args:
-        ssh: SSH client
-        service_name: Name of the systemd service
-        port: Expected listening port
-    
-    Returns:
-        True if service is healthy
-    """
+    """Verify a service is running and listening on its port."""
     print(f"  [4/4] Verifying {service_name}...")
     
     # Wait for uvicorn startup
@@ -307,23 +208,7 @@ def verify_service(ssh: SSHClient, service_name: str, port: int) -> bool:
 # =============================================================================
 
 def setup_proxy(host: str, config: dict, db_nodes: list) -> Dict:
-    """
-    Complete setup for Proxy instance.
-    
-    Steps:
-    1. Setup Python environment
-    2. Deploy application code
-    3. Create systemd service
-    4. Verify service is running
-    
-    Args:
-        host: Public IP of Proxy instance
-        config: Project configuration
-        db_nodes: List of DB node info (with private IPs)
-    
-    Returns:
-        Dict with 'success' bool and setup details
-    """
+    """Complete setup for Proxy instance."""
     print(f"\n{'='*60}")
     print(f"Setting up Proxy ({host})")
     print(f"{'='*60}")
@@ -353,23 +238,7 @@ def setup_proxy(host: str, config: dict, db_nodes: list) -> Dict:
 
 
 def setup_gatekeeper(host: str, config: dict, proxy_private_ip: str) -> Dict:
-    """
-    Complete setup for Gatekeeper instance.
-    
-    Steps:
-    1. Setup Python environment
-    2. Deploy application code (with Proxy IP)
-    3. Create systemd service
-    4. Verify service is running
-    
-    Args:
-        host: Public IP of Gatekeeper instance
-        config: Project configuration
-        proxy_private_ip: Private IP of Proxy (for internal communication)
-    
-    Returns:
-        Dict with 'success' bool and setup details
-    """
+    """Complete setup for Gatekeeper instance."""
     print(f"\n{'='*60}")
     print(f"Setting up Gatekeeper ({host})")
     print(f"{'='*60}")
@@ -399,21 +268,7 @@ def setup_gatekeeper(host: str, config: dict, proxy_private_ip: str) -> Dict:
 
 
 def setup_proxy_and_gatekeeper(proxy_info: dict, gatekeeper_info: dict, db_nodes: list) -> Dict:
-    """
-    Setup both Proxy and Gatekeeper instances.
-    
-    Order is important:
-    1. Proxy first (Gatekeeper needs Proxy's private IP)
-    2. Gatekeeper second
-    
-    Args:
-        proxy_info: Proxy instance dict with 'public_ip' and 'private_ip'
-        gatekeeper_info: Gatekeeper instance dict with 'public_ip'
-        db_nodes: List of DB node info dicts
-    
-    Returns:
-        Dict with 'proxy' and 'gatekeeper' setup results
-    """
+    """Setup both Proxy and Gatekeeper instances. Proxy first (Gatekeeper needs its IP)."""
     config = get_config()
     results = {}
     

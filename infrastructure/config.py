@@ -30,8 +30,6 @@ def load_config() -> dict:
     
     return config
 
-
-# Singleton config instance
 _config = None
 
 

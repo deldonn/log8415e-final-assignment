@@ -1,5 +1,5 @@
 """
-Database Setup - LOG8415E Final Assignment
+Database Setup
 
 Sets up MySQL 8 on EC2 instances:
 - Installs and configures MySQL
@@ -19,19 +19,7 @@ from .config import get_config
 # =============================================================================
 
 def install_mysql(ssh: SSHClient, config: dict) -> bool:
-    """
-    Install MySQL 8 server on the remote host.
-    
-    Uses debconf to pre-configure root password for non-interactive install.
-    Installs mysql-server and mysql-client packages.
-    
-    Args:
-        ssh: SSH client connected to the host
-        config: Project configuration with MySQL credentials
-    
-    Returns:
-        True if installation successful
-    """
+    """Install MySQL 8 server on the remote host."""
     print("  [1/5] Installing MySQL 8...")
     
     root_password = config["mysql"]["root_password"]
@@ -51,23 +39,7 @@ echo "MySQL installed"
 
 
 def configure_mysql(ssh: SSHClient, config: dict, server_id: int) -> bool:
-    """
-    Configure MySQL for replication and performance.
-    
-    Settings applied:
-    - InnoDB buffer pool sized for t3.micro (256MB)
-    - Binary logging enabled for replication
-    - GTID mode enabled for auto-positioning
-    - Bind address 0.0.0.0 for remote connections
-    
-    Args:
-        ssh: SSH client
-        config: Project configuration
-        server_id: Unique server ID (1=manager, 2=worker1, 3=worker2)
-    
-    Returns:
-        True if configuration successful
-    """
+    """Configure MySQL for replication and performance."""
     print("  [2/5] Configuring MySQL...")
     
     mysql_conf = f"""[mysqld]
@@ -113,22 +85,7 @@ echo "MySQL configured (server_id={server_id})"
 # =============================================================================
 
 def create_mysql_users(ssh: SSHClient, config: dict) -> bool:
-    """
-    Create MySQL users for application and replication.
-    
-    Creates two users:
-    - appuser: Full privileges for application queries
-    - repl: REPLICATION SLAVE privilege for workers
-    
-    Both users use mysql_native_password for compatibility.
-    
-    Args:
-        ssh: SSH client
-        config: Project configuration with user credentials
-    
-    Returns:
-        True if users created successfully
-    """
+    """Create MySQL users for application and replication."""
     print("  [3/5] Creating MySQL users...")
     
     mysql = config["mysql"]
@@ -164,23 +121,7 @@ echo "Users created"
 # =============================================================================
 
 def import_sakila(ssh: SSHClient, config: dict) -> bool:
-    """
-    Download and import the Sakila sample database.
-    
-    Sakila is a MySQL sample database with:
-    - 200 actors, 1000 films, 600 customers
-    - 23 tables with foreign keys and triggers
-    
-    Also creates the benchmark_results table for benchmarks
-    (must be created here since Gatekeeper blocks DDL).
-    
-    Args:
-        ssh: SSH client
-        config: Project configuration
-    
-    Returns:
-        True if import successful (200 actors found)
-    """
+    """Download and import the Sakila sample database."""
     print("  [4/5] Importing Sakila database...")
     
     mysql = config["mysql"]
@@ -243,21 +184,7 @@ echo "Sakila imported: $ACTOR_COUNT actors, $FILM_COUNT films"
 # =============================================================================
 
 def run_sysbench(ssh: SSHClient, config: dict) -> str:
-    """
-    Run sysbench OLTP benchmark on the MySQL instance.
-    
-    Benchmark configuration:
-    - 2 tables with 5,000 rows each (reduced for speed)
-    - 4 threads for concurrent queries
-    - 15 seconds runtime (reduced from 60s)
-    
-    Args:
-        ssh: SSH client
-        config: Project configuration
-    
-    Returns:
-        Benchmark output string
-    """
+    """Run sysbench OLTP benchmark on the MySQL instance."""
     print("  [5/5] Running sysbench (15s)...")
     
     mysql = config["mysql"]
@@ -287,21 +214,7 @@ echo "Sysbench completed"
 # =============================================================================
 
 def verify_setup(ssh: SSHClient, config: dict) -> Dict[str, bool]:
-    """
-    Verify that database setup is complete.
-    
-    Checks:
-    - MySQL service is running
-    - Sakila database has 200 actors (expected count)
-    - Sysbench results file exists
-    
-    Args:
-        ssh: SSH client
-        config: Project configuration
-    
-    Returns:
-        Dict with verification results
-    """
+    """Verify that database setup is complete."""
     print("  [VERIFY] Checking setup...")
     
     root_pass = config["mysql"]["root_password"]
@@ -340,25 +253,7 @@ def verify_setup(ssh: SSHClient, config: dict) -> Dict[str, bool]:
 # =============================================================================
 
 def setup_db_node(host: str, role: str, server_id: int) -> Dict:
-    """
-    Complete setup for a single DB node.
-    
-    Runs all setup steps in order:
-    1. Install MySQL
-    2. Configure MySQL
-    3. Create users
-    4. Import Sakila
-    5. Run sysbench
-    6. Verify setup
-    
-    Args:
-        host: Public IP of the EC2 instance
-        role: Node role ('manager', 'worker1', 'worker2')
-        server_id: MySQL server ID (1, 2, or 3)
-    
-    Returns:
-        Dict with 'success' bool and setup details
-    """
+    """Complete setup for a single DB node."""
     config = get_config()
     
     print(f"\n{'='*60}")
@@ -398,20 +293,7 @@ def setup_db_node(host: str, role: str, server_id: int) -> Dict:
 
 
 def setup_all_db_nodes(instances: List[Dict]) -> List[Dict]:
-    """
-    Setup all DB nodes sequentially.
-    
-    Assigns server IDs based on role:
-    - manager: 1
-    - worker1: 2
-    - worker2: 3
-    
-    Args:
-        instances: List of instance dicts with 'role' and 'public_ip'
-    
-    Returns:
-        List of setup results for each node
-    """
+    """Setup all DB nodes sequentially."""
     results = []
     server_id_map = {"manager": 1, "worker1": 2, "worker2": 3}
     
